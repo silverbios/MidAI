@@ -94,9 +94,6 @@ If authentication fails, the application prompts for valid credentials. If an AP
 ## License
 This project is licensed under the MIT License. See `LICENSE` for details.
 
-## Author
-[Your Name]
-
 ## Contributions
 Contributions are welcome! Please submit a pull request or open an issue for discussion.
 
