@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
+	"syscall"
+
+	"golang.org/x/term"
 )
 
 // Model struct to hold model data with ID, Name, and Description fields
@@ -13,6 +17,9 @@ type Model struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Task        struct {
+		Capability string `json:"name"`
+	} `json:"task"`
 }
 
 // ModelsResponse struct to hold the response from the Cloudflare API
@@ -63,6 +70,15 @@ func GetAvailableModels(config auth.Config) ([]Model, error) {
 	return modelsResponse.Result, nil
 }
 
+// Function to determine the terminal width dynamically
+func getTerminalWidth() int {
+	width, _, err := term.GetSize(int(syscall.Stdout))
+	if err != nil {
+		return 120 // Fallback width if terminal size can't be determined
+	}
+	return width
+}
+
 // PrintModelsTable prints the list of models in a table format
 func PrintModelsTable(models []Model) {
 	// Check if the models slice is nil or empty
@@ -74,30 +90,47 @@ func PrintModelsTable(models []Model) {
 	// Create a strings.Builder to build the table output
 	builder := &strings.Builder{}
 	// Print the table header
-	fmt.Fprintln(builder, "+----+---------------------------------------------+---------------------------------------------------------------------------------------------------+")
-	fmt.Fprintln(builder, "| #  |                Model Name                  |                                             Description                                             |")
-	fmt.Fprintln(builder, "+----+---------------------------------------------+---------------------------------------------------------------------------------------------------+")
+	fmt.Fprintln(builder, "+----+---------------------------------------------+---------------------+----------------------------------------------------------------------------------------+")
+	fmt.Fprintln(builder, "| #  |                  Model Name                 |     Model Type      |                                      Description                                       |")
+	fmt.Fprintln(builder, "+----+---------------------------------------------+---------------------+----------------------------------------------------------------------------------------+")
 
 	// Iterate over the models and print each row
 	for i, model := range models {
-		printRow(builder, i+1, model.Name, model.Description)
+		printRow(builder, i+1, model.Name, model.Task.Capability, model.Description)
+		// Print the table footer
+		fmt.Fprintln(builder, "+----+---------------------------------------------+---------------------+----------------------------------------------------------------------------------------+")
+
 	}
-
-	// Print the table footer
-	fmt.Fprintln(builder, "+----+---------------------------------------------+---------------------------------------------------------------------------------------------------+")
-
 	// Output the entire table
 	fmt.Print(builder.String())
 }
 
 // printRow handles printing a single row of the table, truncating the description if necessary
-func printRow(builder *strings.Builder, number int, name string, description string) {
-	// Truncate the description to fit within the table
-	truncatedDescription := truncate(description, 99)
+func printRow(builder *strings.Builder, number int, name string, capability string, description string) {
+	// Define fixed column widths
+	idWidth := 3          // ID column width (fixed)
+	nameWidth := 30       // Name column width (fixed)
+	capabilityWidth := 25 // Capability column width (fixed)
+
+	// Dynamically calculate the remaining space for description
+	descriptionWidth := getTerminalWidth() - (idWidth + nameWidth + capabilityWidth + 16) // 16 accounts for column dividers
+
+	// Ensure description width is not negative
+	if descriptionWidth < 16 {
+		descriptionWidth = 16 // Minimum width to prevent overflow
+	}
+
+	// Trim and truncate fields
+	truncatedName := truncate(strings.TrimSpace(path.Base(name)), nameWidth)
+	truncatedCapability := truncate(strings.TrimSpace(capability), capabilityWidth)
+	truncatedDescription := truncate(strings.TrimSpace(description), descriptionWidth)
 
 	// Print the formatted row to the builder
-	fmt.Fprintf(builder, "| %-3d | %-43s | %-99s |\n", number, truncate(name, 43), truncatedDescription)
-	fmt.Fprintln(builder, "+----+---------------------------------------------+---------------------------------------------------------------------------------------------------+")
+	fmt.Fprintf(builder, "| %-*d | %-*s | %-*s | %-*s |\n",
+		idWidth, number,
+		nameWidth, truncatedName,
+		capabilityWidth, truncatedCapability,
+		descriptionWidth, truncatedDescription)
 }
 
 // truncate ensures that text is cut off with '...' if it's too long
@@ -114,7 +147,7 @@ func truncate(str string, maxLength int) string {
 // SelectModel handles model selection based on user input
 func SelectModel(models []Model) (Model, error) {
 	// Check if models slice is nil or empty
-	if models == nil || len(models) == 0 {
+	if models == nil {
 		return Model{}, fmt.Errorf("no models available for selection")
 	}
 
