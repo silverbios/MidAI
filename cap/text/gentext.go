@@ -5,9 +5,7 @@ import (
 	model "MidAI/models"
 	"bufio"
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -17,21 +15,24 @@ import (
 )
 
 // Message represents a single message in the conversation history
-//type Message struct {
-//	Prompt string `json:"prompt"` // Role of the message (user or assistant)
-//}
+type Message struct {
+	Role    string `json:"role"`    // Role of the message (user or assistant)
+	Content string `json:"content"` // Content of the message
+}
 
 // RequestBody is the request body for the AI API
 type RequestBody struct {
-	Prompt string `json:"prompt"` // Conversation history
+	Messages []Message `json:"messages"` // Conversation history
 }
 
 // ApiResponse is the response from the AI API
 type ApiResponse struct {
 	Result struct {
-		Response string `json:"image"` // Response from the assistant
+		Response string `json:"response"` // Response from the assistant
 	} `json:"result"`
 }
+
+var maxHistory int // Maximum number of messages to keep in the conversation history
 
 func Prompt() {
 	// Load the configuration from the user's home directory
@@ -53,27 +54,27 @@ func Prompt() {
 		return
 	}
 
-	// Filter only the models with "Text-to-Image" capability
+	// Filter only the models with "Text Generation" capability
 	var textToImageModels []model.Model
 	for _, m := range models {
-		if m.Task.Capability == "Text-to-Image" {
+		if m.Task.Capability == "Text Generation" {
 			textToImageModels = append(textToImageModels, m)
 		}
 	}
-	// Print the table of only Text-to-Image models
+	// Print the table of only Text Generation models
 	model.PrintModelsTable(textToImageModels)
 
 	selectedModel, err := model.SelectModel(models)
 	if err != nil {
-		// Select a random model from the list with the "Text-to-Image" capability
+		// Select a random model from the list with the "Text Generation" capability
 		var ids []int
 		for i, model := range models {
-			if model.Task.Capability == "Text-to-Image" {
+			if model.Task.Capability == "Text Generation" {
 				ids = append(ids, i)
 			}
 		}
 		if len(ids) == 0 {
-			fmt.Println("No models with the 'Text-to-Image' capability available")
+			fmt.Println("No models with the 'Text Generation' capability available")
 			return
 		}
 		randomIndex := rand.Intn(len(ids))       // Generate a random index within the range of IDs
@@ -83,6 +84,20 @@ func Prompt() {
 		//fmt.Println("Error selecting model:", err)
 		//return
 	}
+
+	fmt.Println("\n1. History size: 1  2. History size: 2  3. History size: 3  4. History size: 4  5. History size: 5  6. History size: 6 (default)  7. History size: 7  8. History size: 8  9. History size: 9  10. History size: 10")
+
+	_, err = fmt.Scanln(&maxHistory)
+	if err != nil || maxHistory < 1 || maxHistory > 10 {
+		fmt.Printf("\nInvalid selection. We select the 6 size for you.\n")
+		maxHistory = 6
+		fmt.Printf("History size set to: %d\n", maxHistory)
+		// If there's an error reading the user's input, panic
+		//panic(err)
+	}
+
+	// Initialize the conversation history
+	conversationHistory := make([]Message, 0, maxHistory)
 
 	// Create a reader to read the user's input
 	reader := bufio.NewReader(os.Stdin)
@@ -103,28 +118,31 @@ func Prompt() {
 			break
 		}
 
+		// Add the user's message to the conversation history
+		conversationHistory = appendMessage(conversationHistory, "user", userInput)
+
 		// Build the API URL
 		apiURL := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/ai/run/%s", config.AccountID, selectedModel.Name)
 
 		// Build the request body
 		requestBody := RequestBody{
-			Prompt: userInput,
+			Messages: append([]Message{
+				{Role: "system", Content: "You are a friendly assistant"},
+			}, conversationHistory...),
 		}
 
 		// Get the assistant's response
-		imageData, err := getAssistantResponse(apiURL, config.Token, requestBody)
+		assistantResponse, err := getAssistantResponse(apiURL, config.Token, requestBody)
 		if err != nil {
 			// If there's an error getting the assistant's response, panic
 			panic(err)
 		}
 
-		// Save image
-		if err := saveBase64Image(imageData, "generated_image.png"); err != nil {
-			fmt.Println("Error saving image:", err)
-			continue
-		}
+		// Print the assistant's response
+		fmt.Printf("\nAssistant's response:\n%s\n", assistantResponse)
 
-		fmt.Println("✅ Image saved as 'generated_image.png'")
+		// Add the assistant's response to the conversation history
+		conversationHistory = appendMessage(conversationHistory, "assistant", assistantResponse)
 	}
 }
 
@@ -138,22 +156,13 @@ func promptForConfig() auth.Config {
 	return config
 }
 
-// Save base64-encoded image to a file
-func saveBase64Image(base64Data, filename string) error {
-	imageBytes, err := decodeBase64(base64Data)
-	if err != nil {
-		return err
+// appendMessage appends a message to the conversation history
+func appendMessage(history []Message, role, content string) []Message {
+	if len(history) >= maxHistory {
+		// If the conversation history is full, remove the oldest message
+		history = history[1:]
 	}
-	return os.WriteFile(filename, imageBytes, 0644)
-}
-
-// Decode base64 string
-func decodeBase64(base64String string) ([]byte, error) {
-	decoded, err := base64.StdEncoding.DecodeString(base64String)
-	if err != nil {
-		return nil, errors.New("failed to decode base64 image")
-	}
-	return decoded, nil
+	return append(history, Message{Role: role, Content: content})
 }
 
 // getAssistantResponse makes an API call to the AI API to get the assistant's response
@@ -163,11 +172,6 @@ func getAssistantResponse(url, token string, requestBody RequestBody) (string, e
 	if err != nil {
 		return "", err
 	}
-
-	fmt.Println("\n🟢 Sending Request:")
-	fmt.Println("🔹 URL:", url)
-	fmt.Println("🔹 Headers: Authorization=Bearer <hidden>, Content-Type=application/json")
-	fmt.Println("🔹 Payload:", string(body)) // Print request body as string
 
 	// Create a new request
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
@@ -193,16 +197,10 @@ func getAssistantResponse(url, token string, requestBody RequestBody) (string, e
 		return "", err
 	}
 
-	// Log the raw response
-	fmt.Println("\n🔵 Received Response:")
-	fmt.Println("🔹 Status Code:", res.Status)
-	fmt.Println("🔹 Headers:", res.Header)
-	fmt.Println("🔹 Body:", string(respBody)) // Print full response
-
 	// Unmarshal the response body to the ApiResponse struct
 	var apiResponse ApiResponse
 	if err := json.Unmarshal(respBody, &apiResponse); err != nil {
-		return "", fmt.Errorf("failed to parse JSON response: %w\nRaw Response: %s", err, string(respBody))
+		return "", err
 	}
 
 	// Return the assistant's response

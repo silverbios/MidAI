@@ -1,10 +1,19 @@
 package main
 
 import (
-	gentext "MidAI/cap" // Import the gentext package where the Prompt function is located
+	genimg "MidAI/cap/image"
+	gentext "MidAI/cap/text"
+	"fmt"
 )
 
 func main() {
+	var choice int
 	// Start the conversation
-	gentext.Prompt()
+	fmt.Printf("select your Generative AI type:\n1. Text\n2. Image\n")
+	fmt.Scan(&choice)
+	if choice == 1 {
+		gentext.Prompt()
+	} else if choice == 2 {
+		genimg.Prompt()
+	}
 }
