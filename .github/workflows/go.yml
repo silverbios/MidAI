@@ -41,7 +41,7 @@ jobs:
 
       - name: Set Environment Variables
         run: |
-          echo "GOOS=${{ matrix.os == 'windows-latest' && 'windows' || matrix.os == 'macos-latest' && 'darwin' || 'linux' }}" >> $GITHUB_ENV
+          echo "GOOS=$(echo '${{ matrix.os }}' | awk '{print tolower($0)}' | sed 's/windows/windows.exe/; s/macos/darwin/; s/ubuntu/linux/')" >> $GITHUB_ENV
           echo "GOARCH=${{ matrix.goarch }}" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
           echo "TAG_NAME=${{ github.ref_name }}" >> $GITHUB_ENV
@@ -49,12 +49,14 @@ jobs:
       - name: Build Binary
         run: |
           mkdir -p build
-          go build -o build/myapp-${{ env.GOOS }}-${{ env.GOARCH }}-${{ env.BUILD_DATE }}${{ env.GOOS == 'windows' && '.exe' || '' }} .
+          FILENAME="MidAI-${{ env.TAG_NAME }}-${{ env.GOOS }}-${{ env.GOARCH }}${{ env.GOOS == 'windows.exe' && '.exe' || '' }}"
+          go build -o build/$FILENAME .
+          echo "BUILT_FILE=$FILENAME" >> $GITHUB_ENV
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: myapp-${{ matrix.os }}-${{ matrix.goarch }}-${{ env.BUILD_DATE }}
+          name: midai-build-${{ env.TAG_NAME }}
           path: build/
 
   release:
@@ -68,13 +70,17 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
+          name: midai-build-${{ github.ref_name }}
           path: build/
+
+      - name: List Files in Build Directory (Debugging)
+        run: ls -lh build/
 
       - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }} # Use the pushed tag (e.g., v1.0.0)
+          tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
           body: |
             New release of MidAI
@@ -82,7 +88,7 @@ jobs:
             - Commit: ${{ github.sha }}
           draft: false
           prerelease: false
-          files: build/**/*
+          files: build/*
         env:
           GITHUB_TOKEN: ${{ secrets.MIDAIRELEASE }}
 
