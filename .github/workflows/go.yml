@@ -41,7 +41,11 @@ jobs:
 
       - name: Set Environment Variables
         run: |
-          echo "GOOS=$(echo '${{ matrix.os }}' | awk '{print tolower($0)}' | sed 's/windows/windows.exe/; s/macos/darwin/; s/ubuntu/linux/')" >> $GITHUB_ENV
+          case "${{ matrix.os }}" in
+            ubuntu-latest) echo "GOOS=linux" >> $GITHUB_ENV ;;
+            macos-latest) echo "GOOS=darwin" >> $GITHUB_ENV ;;
+            windows-latest) echo "GOOS=windows" >> $GITHUB_ENV ;;
+          esac
           echo "GOARCH=${{ matrix.goarch }}" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
           echo "TAG_NAME=${{ github.ref_name }}" >> $GITHUB_ENV
@@ -49,7 +53,10 @@ jobs:
       - name: Build Binary
         run: |
           mkdir -p build
-          FILENAME="MidAI-${{ env.TAG_NAME }}-${{ env.GOOS }}-${{ env.GOARCH }}${{ env.GOOS == 'windows.exe' && '.exe' || '' }}"
+          FILENAME="MidAI-${{ env.TAG_NAME }}-${{ env.GOOS }}-${{ env.GOARCH }}"
+          if [ "${{ env.GOOS }}" == "windows" ]; then
+            FILENAME="$FILENAME.exe"
+          fi
           go build -o build/$FILENAME .
           echo "BUILT_FILE=$FILENAME" >> $GITHUB_ENV
 
